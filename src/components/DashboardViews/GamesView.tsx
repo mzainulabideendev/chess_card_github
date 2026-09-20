@@ -23,6 +23,7 @@ export const GamesView: React.FC<GamesViewProps> = ({
     result: 'all',
     color: 'all',
     timeClass: 'all',
+    timeClasses: [],
     classification: 'all',
     opening: 'all',
     minRating: 0,
@@ -64,8 +65,12 @@ export const GamesView: React.FC<GamesViewProps> = ({
       if (filters.result === 'draw' && (playerResult === 'win' || oppResult === 'win')) return false;
     }
 
-    // Time Control Filter
-    if (filters.timeClass !== 'all' && game.timeClass !== filters.timeClass) {
+    // Multi-Select Time Control Filter (Rapid, Blitz, Bullet, Daily)
+    if (filters.timeClasses && filters.timeClasses.length > 0) {
+      if (!filters.timeClasses.includes(game.timeClass)) {
+        return false;
+      }
+    } else if (filters.timeClass !== 'all' && game.timeClass !== filters.timeClass) {
       return false;
     }
 

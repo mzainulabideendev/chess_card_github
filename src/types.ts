@@ -142,6 +142,8 @@ export interface PlayerReport {
   losses: number;
   draws: number;
   winRate: number;
+  currentStreak?: number;
+  longestWinStreak?: number;
   avgRating: number;
   highestOpponentRating?: number;
   avgGameLength: number;
@@ -200,6 +202,7 @@ export interface GameFilterState {
   result: 'all' | 'win' | 'loss' | 'draw';
   color: 'all' | 'white' | 'black';
   timeClass: 'all' | 'bullet' | 'blitz' | 'rapid' | 'daily';
+  timeClasses: string[]; // Multi-select time controls filter e.g. ['rapid', 'blitz', 'bullet']
   classification: 'all' | GameClassification;
   opening: string;
   minRating: number;

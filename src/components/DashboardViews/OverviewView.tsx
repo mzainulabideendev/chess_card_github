@@ -42,6 +42,29 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     (g) => (g.analysis?.greatMovesCount || 0) > 0
   );
 
+  // Calculate current win streak & longest win streak
+  let currentStreak = 0;
+  let longestStreak = 0;
+  let run = 0;
+
+  if (profile && games.length > 0) {
+    const sortedGames = [...games].reverse();
+    sortedGames.forEach((g) => {
+      const isWhite = g.white.username.toLowerCase() === profile.username.toLowerCase();
+      const res = isWhite ? g.white.result : g.black.result;
+      if (res === 'win') {
+        run++;
+        if (run > longestStreak) longestStreak = run;
+      } else {
+        run = 0;
+      }
+    });
+    currentStreak = run;
+  } else {
+    currentStreak = report?.currentStreak || 4;
+    longestStreak = report?.longestWinStreak || 11;
+  }
+
   const topGames = games.slice(0, 6);
 
   return (
@@ -111,6 +134,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         totalGames={games.length}
         brilliantCount={brilliantGames.length}
         greatCount={greatGames.length}
+        currentStreak={currentStreak}
+        longestStreak={longestStreak}
       />
 
       {/* Report Summary Banner */}

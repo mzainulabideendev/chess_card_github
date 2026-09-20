@@ -77,10 +77,36 @@ async function isSafeUrl(targetUrl: string): Promise<boolean> {
 // API ROUTES
 // ----------------------------------------------------
 
+// XML Escaper for safe SVG rendering on GitHub
+function escapeXml(str: string): string {
+  return (str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// Convert avatar image URL to Base64 Data URI for GitHub Camo compatibility
+async function getAvatarAsBase64(url: string): Promise<string | null> {
+  if (!url) return null;
+  try {
+    const response = await fetch(url, { headers: { 'User-Agent': 'ChessIntelApp/1.0' } });
+    if (!response.ok) return null;
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    return `data:${contentType};base64,${buffer.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 // Dynamic GitHub Profile Streak / Rating SVG Card Endpoint
 app.get('/api/card-with-avatar', async (req, res) => {
   try {
-    const username = (req.query.username as string) || 'Hikaru';
+    const rawUsername = (req.query.username as string) || 'Hikaru';
+    const username = rawUsername.trim();
     let themeObj: any = {};
 
     if (req.query.theme) {
@@ -91,11 +117,12 @@ app.get('/api/card-with-avatar', async (req, res) => {
       }
     }
 
-    const bgColor = req.query.backgroundColor as string || themeObj.backgroundColor || '#0d1117';
-    const textColor = req.query.textColor as string || themeObj.textColor || '#dedede';
-    const accentColor = req.query.accentColor as string || themeObj.accentColor || '#00abf0';
-    const borderColor = req.query.borderColor as string || themeObj.borderColor || '#1e293b';
-    const streakColor = req.query.streakColor as string || themeObj.streakColor || '#f59e0b';
+    const bgColor = escapeXml(req.query.backgroundColor as string || themeObj.backgroundColor || '#0d1117');
+    const textColor = escapeXml(req.query.textColor as string || themeObj.textColor || '#dedede');
+    const accentColor = escapeXml(req.query.accentColor as string || themeObj.accentColor || '#00abf0');
+    const borderColor = escapeXml(req.query.borderColor as string || themeObj.borderColor || '#1e293b');
+    const streakColor = escapeXml(req.query.streakColor as string || themeObj.streakColor || '#f59e0b');
+    const logoColor = escapeXml(req.query.logoColor as string || themeObj.logoColor || '#81b64c');
 
     // Attempt to load player profile
     let profile = null;
@@ -105,42 +132,66 @@ app.get('/api/card-with-avatar', async (req, res) => {
       // fallback
     }
 
-    const nameDisplay = profile?.name || profile?.username || username;
-    const title = profile?.title || '';
-    const avatarUrl = profile?.avatar || `https://images.chesscomfiles.com/uploads/v1/user/0/1.2c842b6a.160x160o.png`;
+    const nameDisplay = escapeXml(profile?.name || profile?.username || username);
+    const title = escapeXml(profile?.title || '');
+    const rawAvatarUrl = profile?.avatar || `https://images.chesscomfiles.com/uploads/v1/user/0/1.2c842b6a.160x160o.png`;
+
+    // Fetch avatar & embed as Base64 data URI so GitHub Camo proxy allows rendering
+    const avatarBase64 = await getAvatarAsBase64(rawAvatarUrl);
 
     const rapidRating = profile?.ratings.rapid?.rating || 1500;
     const blitzRating = profile?.ratings.blitz?.rating || 1600;
     const bulletRating = profile?.ratings.bullet?.rating || 1550;
 
-    // Load analyzed games if in cache for real win rate
+    // Load analyzed games if in cache for real win rate and streaks
     const cachedGames = gameCache.get(username.toLowerCase()) || [];
     let winCount = 0;
     let totalGames = cachedGames.length || 35;
     let brilliantCount = 0;
     let greatCount = 0;
+    let currentStreak = 0;
+    let longestStreak = 0;
 
     if (cachedGames.length > 0) {
-      cachedGames.forEach((g) => {
+      let run = 0;
+      // Chronological order for streak calculation
+      const sortedGames = [...cachedGames].reverse();
+      sortedGames.forEach((g) => {
         const isWhite = g.white.username.toLowerCase() === username.toLowerCase();
         const res = isWhite ? g.white.result : g.black.result;
-        if (res === 'win') winCount++;
+        if (res === 'win') {
+          winCount++;
+          run++;
+          if (run > longestStreak) longestStreak = run;
+        } else {
+          run = 0;
+        }
         brilliantCount += g.analysis?.brilliantMovesCount || 0;
         greatCount += g.analysis?.greatMovesCount || 0;
       });
+      currentStreak = run;
     } else {
       winCount = Math.round(totalGames * 0.62);
       brilliantCount = 8;
       greatCount = 14;
+      currentStreak = 4;
+      longestStreak = 11;
     }
 
     const winRate = totalGames > 0 ? Math.round((winCount / totalGames) * 100) : 62;
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="520" height="210" viewBox="0 0 520 210" fill="none">
+    const initialLetter = escapeXml(username.substring(0, 1).toUpperCase());
+
+    const avatarSvgElement = avatarBase64
+      ? `<image href="${avatarBase64}" x="20" y="20" width="64" height="64" clip-path="url(#avatar-clip)" preserveAspectRatio="xMidYMid slice" />`
+      : `<circle cx="52" cy="52" r="32" fill="${accentColor}" />
+         <text x="52" y="59" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="900" fill="#020617">${initialLetter}</text>`;
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="530" height="215" viewBox="0 0 530 215" fill="none">
   <defs>
     <linearGradient id="card-grad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="${bgColor}" stop-opacity="1" />
-      <stop offset="100%" stop-color="${bgColor}" stop-opacity="0.88" />
+      <stop offset="100%" stop-color="${bgColor}" stop-opacity="0.90" />
     </linearGradient>
 
     <pattern id="grid-pattern" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -151,75 +202,89 @@ app.get('/api/card-with-avatar', async (req, res) => {
     <clipPath id="avatar-clip">
       <circle cx="52" cy="52" r="32" />
     </clipPath>
-
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="3" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
   </defs>
 
   <style>
     .bg { fill: url(#card-grad); stroke: ${borderColor}; stroke-width: 1.5px; rx: 18px; }
     .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 18px; font-weight: 800; fill: ${textColor}; letter-spacing: -0.3px; }
     .subtitle { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; fill: ${accentColor}; }
-    .stat-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 11px; fill: #94a3b8; font-weight: 500; }
-    .stat-val { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px; font-weight: 700; fill: ${textColor}; }
-    .streak-val { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 18px; font-weight: 800; fill: ${streakColor}; }
-    .great-val { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 18px; font-weight: 800; fill: ${accentColor}; }
+    .stat-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 10px; fill: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-val { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; font-weight: 700; fill: ${textColor}; }
+    .streak-val { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px; font-weight: 800; fill: ${streakColor}; }
+    .great-val { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px; font-weight: 800; fill: ${accentColor}; }
     .badge { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 10px; font-weight: 900; fill: #020617; letter-spacing: 0.5px; }
   </style>
 
   <!-- Background Card Container -->
-  <rect x="1" y="1" width="518" height="208" class="bg" />
-  <rect x="1" y="1" width="518" height="208" fill="url(#grid-pattern)" rx="18" />
+  <rect x="1" y="1" width="528" height="213" class="bg" />
+  <rect x="1" y="1" width="528" height="213" fill="url(#grid-pattern)" rx="18" />
 
   <g transform="translate(10, 10)">
-    <!-- Avatar Border & Glow -->
+    <!-- Avatar Border -->
     <circle cx="52" cy="52" r="34" stroke="${accentColor}" stroke-width="2" fill="none" opacity="0.9" />
-    <image href="${avatarUrl}" x="20" y="20" width="64" height="64" clip-path="url(#avatar-clip)" preserveAspectRatio="xMidYMid slice" />
+    ${avatarSvgElement}
 
     <!-- Name & Title -->
     <g transform="translate(100, 38)">
       ${title ? `<rect x="0" y="-16" width="${title.length * 9 + 12}" height="18" rx="5" fill="${accentColor}" />
       <text x="6" y="-3" class="badge">${title}</text>` : ''}
       <text x="${title ? title.length * 9 + 20 : 0}" y="0" class="title">${nameDisplay}</text>
-      <text x="0" y="20" class="subtitle">@${username} • Chess.com Profile</text>
+      <text x="0" y="20" class="subtitle">@${escapeXml(username)}</text>
+    </g>
+
+    <!-- Official Chess.com Pawn Logo -->
+    <g transform="translate(465, 20)" fill="${logoColor}">
+      <path d="M12 2C10.62 2 9.5 3.12 9.5 4.5C9.5 5.57 10.17 6.48 11.12 6.85C9.77 7.55 8.8 8.92 8.56 10.53C9.58 10.19 10.75 10 12 10C13.25 10 14.42 10.19 15.44 10.53C15.2 8.92 14.23 7.55 12.88 6.85C13.83 6.48 14.5 5.57 14.5 4.5C14.5 3.12 13.38 2 12 2ZM6.33 12.08C6.12 12.89 6 13.73 6 14.6C6 16.63 6.64 18.51 7.73 20H16.27C17.36 18.51 18 16.63 18 14.6C18 13.73 17.88 12.89 17.67 12.08C16.03 11.39 14.09 11 12 11C9.91 11 7.97 11.39 6.33 12.08ZM4 21V22H20V21H4Z" transform="scale(1.25)" />
     </g>
 
     <!-- Divider Line -->
-    <line x1="20" y1="100" x2="480" y2="100" stroke="${borderColor}" stroke-width="1" opacity="0.6" />
+    <line x1="20" y1="96" x2="490" y2="96" stroke="${borderColor}" stroke-width="1" opacity="0.6" />
 
-    <!-- Stat Grid -->
-    <g transform="translate(20, 115)">
-      <!-- Ratings -->
+    <!-- Stat Grid Row 1 -->
+    <g transform="translate(20, 110)">
       <g transform="translate(0, 0)">
-        <text x="0" y="12" class="stat-label">Blitz / Rapid</text>
-        <text x="0" y="32" class="stat-val">⚡ ${blitzRating} • ⏱ ${rapidRating}</text>
+        <text x="0" y="10" class="stat-label">Blitz / Rapid</text>
+        <text x="0" y="28" class="stat-val">${blitzRating} / ${rapidRating}</text>
       </g>
 
-      <g transform="translate(145, 0)">
-        <text x="0" y="12" class="stat-label">Win Rate (${totalGames} Games)</text>
-        <text x="0" y="32" class="stat-val" fill="${accentColor}">🏆 ${winRate}%</text>
+      <g transform="translate(160, 0)">
+        <text x="0" y="10" class="stat-label">Bullet Rating</text>
+        <text x="0" y="28" class="stat-val">${bulletRating}</text>
       </g>
 
-      <g transform="translate(270, 0)">
-        <text x="0" y="12" class="stat-label">Brilliant Moves</text>
-        <text x="0" y="32" class="streak-val">✦ ${brilliantCount}</text>
+      <g transform="translate(320, 0)">
+        <text x="0" y="10" class="stat-label">Win Rate</text>
+        <text x="0" y="28" class="stat-val" fill="${accentColor}">${winRate}% (${totalGames}G)</text>
+      </g>
+    </g>
+
+    <!-- Stat Grid Row 2 -->
+    <g transform="translate(20, 158)">
+      <g transform="translate(0, 0)">
+        <text x="0" y="10" class="stat-label">Longest Streak</text>
+        <text x="0" y="28" class="streak-val">${longestStreak} Wins</text>
       </g>
 
-      <g transform="translate(385, 0)">
-        <text x="0" y="12" class="stat-label">Great Moves</text>
-        <text x="0" y="32" class="great-val">⭐ ${greatCount}</text>
+      <g transform="translate(160, 0)">
+        <text x="0" y="10" class="stat-label">Brilliant Moves</text>
+        <text x="0" y="28" class="streak-val">${brilliantCount} Moves</text>
+      </g>
+
+      <g transform="translate(320, 0)">
+        <text x="0" y="10" class="stat-label">Great Moves</text>
+        <text x="0" y="28" class="great-val">${greatCount} Moves</text>
       </g>
     </g>
   </g>
 </svg>`;
 
-    res.setHeader('Content-Type', 'image/svg+xml');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=1800, s-maxage=3600');
     res.send(svg);
   } catch (err: any) {
-    res.status(500).send(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100"><text x="10" y="50" fill="red">Error generating card: ${err.message}</text></svg>`);
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.status(500).send(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100"><text x="10" y="50" fill="red">Error generating card: ${escapeXml(err.message)}</text></svg>`);
   }
 });
 
