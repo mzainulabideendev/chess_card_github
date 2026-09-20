@@ -1,0 +1,6 @@
+{
+  "name": "Chess Profile Intelligence Platform",
+  "description": "Analyze public Chess.com profiles, PGN games, GitHub repositories, and web content with real-time API data and engine analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
